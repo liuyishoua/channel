@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "real_platform_calls": false,
+  "browser_errors": [],
+  "secure_workbench_session": true,
+  "flows": [
+    "goal creation",
+    "baseline skips history",
+    "local message observation",
+    "source API event ingestion",
+    "model plan and human adoption",
+    "account claim",
+    "demo platform send and exact receipt",
+    "follow-up timer and same-task append",
+    "stop-contact cancellation",
+    "mobile layout"
+  ]
+}

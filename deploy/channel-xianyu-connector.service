@@ -1,0 +1,17 @@
+[Unit]
+Description=Channel XianYu account observer and action executor (opt-in)
+After=network.target channel.service xianyu-web.service
+ConditionPathExists=/home/ubuntu/leo-project/channel/.local/xianyu-connector.json
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/leo-project/channel
+ExecStart=/home/ubuntu/leo-project/channel/.venv/bin/python sdk/xianyu_connector.py --config /home/ubuntu/leo-project/channel/.local/xianyu-connector.json
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

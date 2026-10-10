@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "execute": false,
+  "sync_recent": false,
+  "sync_interval_seconds": 60,
+  "account_id": "REPLACE_WITH_CONNECTED_PLATFORM_ACCOUNT_ID",
+  "executor_id": "xianyu-local-v1",
+  "workbench_url": "http://127.0.0.1:8770",
+  "workbench_origin": "https://d.58nft.net:9448",
+  "password_file": "/home/ubuntu/leo-project/xianyu/.local/web/admin-password",
+  "channel_config": "/home/ubuntu/leo-project/xianyu/.local/web/channel.json",
+  "journal": "/home/ubuntu/leo-project/channel/.local/xianyu-connector.sqlite3"
+}

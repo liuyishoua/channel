@@ -1,0 +1,15 @@
+[Unit]
+Description=Channel durable social message routing service
+After=network.target
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/leo-project/channel
+ExecStart=/home/ubuntu/leo-project/channel/.venv/bin/python -m channel_service --port 8780 --public-origin https://d.58nft.net:9456
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=50
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

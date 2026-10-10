@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "https_login_logout": true,
+  "tabs": 5,
+  "synthetic_goal_paused": true,
+  "synthetic_proposals_cancelled": 2,
+  "browser_errors": [],
+  "mobile_overflow": false
+}
