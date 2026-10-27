@@ -1,5 +1,7 @@
 # channel
 
+> 文档中的 example.com 域名、192.0.2.* 地址、/opt/operator 路径及 20000 段端口均为示例，请按实际部署配置替换。私有账号配置与运行数据不随源码提交。
+
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)](LICENSE)
 
 独立运行的社交工作台消息中枢，将文字、图片和图文请求交给 Multica 的指定 agent，
@@ -10,7 +12,7 @@ Python / Flask 后端、原生 HTML/JS 前端、SQLite WAL 队列，平台登录
 
 以下为离线演示截图，使用虚构来源和模拟任务。
 
-![消息中枢概览](docs/previews/channel-overview.png)
+消息中枢概览（本地资料）
 
 ## 本机启动
 
@@ -24,7 +26,7 @@ python3 -m venv .venv
 .venv/bin/python -m channel_service --demo --data-dir .local/demo
 ```
 
-打开 **http://127.0.0.1:8780**。演示模式使用模拟 Multica，不创建真实任务或发送社交消息。
+打开 **http://127.0.0.1:20010**。演示模式使用模拟 Multica，不创建真实任务或发送社交消息。
 访问密码在首次启动时生成并保存在 `.local/demo/admin-password`。按 Ctrl+C 停止。
 
 ## 真实模型模式
@@ -55,7 +57,7 @@ node --check channel_service/static/app.js
 - `channel_service/`：消息路由、持久队列、会话、自动化动作与管理界面。
 - `sdk/`：工作台接入 SDK；`tests/`：隔离回归测试。
 - `deploy/`：部署示例；`docs/`：设计、API、会话和运维说明。
-- [完整功能和集成说明](docs/operations-original.md)。
+- 完整功能和集成说明（本地资料）。
 
 ## 使用许可
 

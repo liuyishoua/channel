@@ -2,7 +2,7 @@
 
 通用会话存储、增量同步、记忆与独立上下文执行见 [Session 接入协议](sessions.md)。新接入的持续聊天渠道优先使用 Session API；历史同步不触发模型。
 
-生产者使用各工作台后端的 `.local/web/channel.json`，包含 source_id、base_url、token；不得传给浏览器。公网地址 `https://d.58nft.net:9456`，同机可使用 `http://127.0.0.1:8780`。
+生产者使用各工作台后端的 `.local/web/channel.json`，包含 source_id、base_url、token；不得传给浏览器。公网地址 `https://portal.example.com:20042`，同机可使用 `http://127.0.0.1:20010`。
 
 所有 `/v1/` 请求使用 `Authorization: Bearer <来源凭据>`。Cookie 和访问密码不能代替来源凭据，带浏览器 Origin 的机器请求会被拒绝。不支持任意回调 URL 或服务端抓取任意图片 URL。
 

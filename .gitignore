@@ -32,3 +32,24 @@ __pycache__/
 docs/*verification*.json
 docs/acceptance.json
 docs/previews/*production*
+
+# Private operator configuration and local validation records
+/docs/automation-browser-acceptance.json
+/docs/automation-model-acceptance.json
+/docs/automation-production-acceptance.json
+/docs/content-monitoring-acceptance.json
+/docs/content-publishing-acceptance.json
+/docs/dialogue-acceptance.json
+/docs/operations-original.md
+/docs/previews/BilibiliApis-ai.png
+/docs/previews/JdApis-ai.png
+/docs/previews/KuaiShou-Spider-ai.png
+/docs/previews/WeiboApis-ai.png
+/docs/previews/ZhihuApis-ai.png
+/docs/previews/automation-actions.png
+/docs/previews/automation-goals.png
+/docs/previews/automation-mobile.png
+/docs/previews/channel-message-result.png
+/docs/previews/channel-mobile.png
+/docs/previews/channel-overview.png
+/docs/previews/channel-routes.png

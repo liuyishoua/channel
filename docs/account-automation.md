@@ -114,7 +114,7 @@ flowchart LR
 
 ## 操作与部署
 
-管理页面：<https://d.58nft.net:9456/automation>，使用 Channel 同一登录。
+管理页面：<https://portal.example.com:20042/automation>，使用 Channel 同一登录。
 
 1. 配置业务目标，选择对应 Multica agent，填写真实稳定执行账号；先采用后执行用于观察方案。
 2. 用 deploy/xianyu-connector.example.json 创建 `.local/xianyu-connector.json`，文件权限0600。样例不包含凭据值，只引用已有私有文件。

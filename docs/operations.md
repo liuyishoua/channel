@@ -13,11 +13,11 @@
 ```sh
 sudo systemctl status channel channel-proxy
 sudo systemctl restart channel.service
-curl -fsS https://d.58nft.net:9456/healthz
+curl -fsS https://portal.example.com:20042/healthz
 sudo journalctl -u channel --since today
 ```
 
-修改工作台适配代码后，只重启对应工作台服务。Channel 不重启 Multica、数据库或 agent runtime。Caddy 只增加独立 9456 入口，未修改域名首页或既有模型 API。
+修改工作台适配代码后，只重启对应工作台服务。Channel 不重启 Multica、数据库或 agent runtime。Caddy 只增加独立 20042 入口，未修改域名首页或既有模型 API。
 
 ## 恢复
 
@@ -39,7 +39,7 @@ sudo journalctl -u channel --since today
 
 真实模型回归：`scripts/evaluate_dm_conversation.py --execute --phase <label> --cases detail,invitation,shared_joke,celebration,laughter,goodnight,distress,no_images,sticker_turn,style_feedback,ordinary`。使用独立临时队列、虚构会话与本地已准备 GIF 的视觉采样，创建真实 Multica 执行但不连接社交发送器。原始结果与精确 issue/run ID 保存在 `.local/dialogue-evaluation-<label>.json`。另外以 `visual_probe,visual_probe_left,visual_probe_right` 去掉语义标签、随机化资产 ID、调整图片顺序，检查能否认出真实拥抱画面。当前 Codex 适配层不转存原生图像查看事件，不能从 transcript 缺少 view_image 直接断言没看图；视觉验证以盲化后的选图结果为依据。
 
-可供审阅的合成输出、对应执行和验证边界见 [dialogue-acceptance.json](dialogue-acceptance.json)。三个换序视觉场景全部认对，主动斗图、共笑和庆祝返回原生 sticker。XHS 的 `deploy/verify_dialogue_media.py --report <私有合成报告路径> --case <情境>` 将这些真实模型结果交给临时数据库与假传输，验证 `content_type=16`、GIF 标志、文字/图顺序、匹配回执与防重发；不调用真实小红书发送接口。
+可供审阅的合成输出、对应执行和验证边界见 dialogue-acceptance.json（本地资料）。三个换序视觉场景全部认对，主动斗图、共笑和庆祝返回原生 sticker。XHS 的 `deploy/verify_dialogue_media.py --report <私有合成报告路径> --case <情境>` 将这些真实模型结果交给临时数据库与假传输，验证 `content_type=16`、GIF 标志、文字/图顺序、匹配回执与防重发；不调用真实小红书发送接口。
 
 最终路由5追加7项真实模型检查通过，包含加班纠正及未出现在示例中的高铁晚点纠正；此前的通用休息建议在这轮消失。一次候选返回 action 而非 decision，已明确 Agent 的精确字段契约，原始失败记录保留。最终7项端到端模型墙钟时间16.8–42.9秒，中位数23.2秒；较早一轮曾达113.6秒。这里包含附件及排队等开销，不能以这些样本宣称延迟或真人自然度已全面达标。
 
@@ -67,4 +67,4 @@ sudo journalctl -u channel --since today
 
 ## 独立指挥部
 
-跨平台业务目标移至 [Headquarters](https://d.58nft.net:9457/)。Channel 的 `/control/v1/*` 使用独立 `.local/command-key`，平台来源凭据和浏览器会话无权访问。新增控制归属和动作变更账本，指挥部拥有的规则由其管理；90 秒授权到期暂停新模型任务及动作领取，保留新事件等待续约。现有本地规则和来源接口继续兼容。
+跨平台业务目标移至 [Headquarters](https://portal.example.com:20043/)。Channel 的 `/control/v1/*` 使用独立 `.local/command-key`，平台来源凭据和浏览器会话无权访问。新增控制归属和动作变更账本，指挥部拥有的规则由其管理；90 秒授权到期暂停新模型任务及动作领取，保留新事件等待续约。现有本地规则和来源接口继续兼容。
