@@ -43,6 +43,31 @@ class QueueTests(unittest.TestCase):
         m=self.incoming(message_id='same');again=self.incoming(message_id='same');self.assertEqual(m['id'],again['id'])
         with self.assertRaises(Problem) as e:self.incoming(message_id='same',content={'text':'changed'})
         self.assertEqual(e.exception.status,409)
+
+    def test_source_retry_is_scoped_idempotent_and_replaces_failed_result(self):
+        from channel_service.multica import RemoteError
+        original = self.remote.create_issue
+        self.remote.create_issue = lambda *args: (_ for _ in ()).throw(RemoteError(409))
+        message = self.incoming(new_task=True)
+        self.tick()
+        self.assertEqual(self.store.message(message['id'])['state'], 'failed_preflight')
+        for source, account in [('zhihu', 'shop-1'), ('xianyu', 'other'), ('xianyu', '')]:
+            with self.assertRaises(LookupError):
+                self.store.retry(message['id'], source, account)
+        resumed = self.store.retry(message['id'], 'xianyu', 'shop-1')
+        self.assertEqual(resumed['id'], message['id'])
+        self.assertEqual(self.store.retry(message['id'], 'xianyu', 'shop-1')['state'], 'queued')
+        self.remote.create_issue = original
+        done = self.complete(message)
+        self.assertEqual(done['state'], 'succeeded')
+        self.assertEqual(self.store.results('xianyu')[0]['state'], 'succeeded')
+
+    def test_source_retry_never_requeues_uncertain_delivery(self):
+        message = self.incoming()
+        with self.store.db(True) as db:
+            db.execute("UPDATE messages SET state='uncertain' WHERE id=?", (message['id'],))
+        with self.assertRaises(Problem):
+            self.store.retry(message['id'], 'xianyu', 'shop-1')
     def test_lifestyle_editor_has_one_direct_contract_without_generic_wrapper(self):
         message = {'source_id': 'xhs', 'category': 'lifestyle_editor', 'content': {'text': 'mode=review'}}
         body = self.worker.body({'id': 'review-batch'}, self.route, [message], {})
@@ -226,6 +251,20 @@ class HttpTests(unittest.TestCase):
         a=self.client.post('/v1/messages',json=data,headers=self.machine);self.assertEqual(a.status_code,202)
         b=self.client.post('/v1/messages',json=data,headers=self.machine);self.assertEqual(b.status_code,200);self.assertTrue(b.json['duplicate'])
         self.assertEqual(self.client.get('/v1/messages/'+a.json['id'],headers=self.machine).status_code,200)
+
+    def test_machine_retry_checks_source_account_and_delivery_state(self):
+        response = self.client.post('/v1/messages', json={'account_id': 'a', 'message_id': 'retry-test', 'content': {'text': '测试'}}, headers=self.machine)
+        event_id = response.json['id']
+        path = '/v1/messages/' + event_id + '/retry'
+        self.assertEqual(self.client.post(path, json={'account_id': 'a'}).status_code, 401)
+        self.assertEqual(self.client.post(path, json={'account_id': 'other'}, headers=self.machine).status_code, 404)
+        with self.store.db(True) as db:
+            db.execute("UPDATE messages SET state='failed_preflight' WHERE id=?", (event_id,))
+        self.assertEqual(self.client.post(path, json={'account_id': 'a'}, headers=self.machine).json['state'], 'queued')
+        self.assertEqual(self.client.post(path, json={'account_id': 'a'}, headers=self.machine).json['state'], 'queued')
+        with self.store.db(True) as db:
+            db.execute("UPDATE messages SET state='uncertain' WHERE id=?", (event_id,))
+        self.assertEqual(self.client.post(path, json={'account_id': 'a'}, headers=self.machine).status_code, 409)
     def test_private_source_keys_not_listed_and_files_not_served(self):
         pw=Path(self.tmp.name,'admin-password').read_text();self.client.post('/api/login',json={'password':pw},headers=self.headers)
         self.assertNotIn(self.key,self.client.get('/api/sources').text);self.assertEqual(self.client.get('/.local/multica.json').status_code,404)

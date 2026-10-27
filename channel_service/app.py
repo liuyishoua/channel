@@ -32,6 +32,8 @@ def create_app(directory, multica, auth=True, public_origin='', background=False
     private_file(store.directory / 'admin-password', secrets.token_urlsafe(24))
     password_hash = generate_password_hash((store.directory / 'admin-password').read_text().strip())
     app = Flask(__name__, static_folder='static')
+    from .page_assets import install_pages
+    install_pages(app, {'index.html','login.html','automation.html'})
     app.config.update(SECRET_KEY=(store.directory / 'session-key').read_text(), MAX_CONTENT_LENGTH=9 * 1024 * 1024,
                       SESSION_COOKIE_NAME='channel_console', SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
                       SESSION_COOKIE_SECURE=public_origin.startswith('https:'), PERMANENT_SESSION_LIFETIME=43200)
@@ -242,7 +244,8 @@ def create_app(directory, multica, auth=True, public_origin='', background=False
 
     @app.get('/v1/catalog')
     def inbound_catalog():
-        # Source credentials may inspect only routes available to that source.
+        # Agent visibility comes from the configured workspace's authenticated API.
+        # Routes remain restricted to the authenticated workbench source.
         agents = {x['id']: x for x in multica.agents()}
         rows = []
         for route in store.routes():
@@ -251,11 +254,25 @@ def create_app(directory, multica, auth=True, public_origin='', background=False
             if route.get('goal_ids', ['*']) != ['*']:
                 continue
             rows.append({**{k: route[k] for k in ('id', 'version', 'name', 'categories', 'kinds', 'grouping', 'agent_id')},
+                         'account_ids': route.get('account_ids', ['*']),
                          'surfaces': route.get('surfaces', ['*']), 'event_types': route.get('event_types', ['*']),
+                         'execution_mode': route.get('execution_mode','issue'), 'priority': route.get('priority',50),
                          'agent': agents.get(route['agent_id'])})
-        return {'routes': rows, 'multica_url': multica.public_url, 'connected': True,
+        return {'routes': rows, 'agents': list(agents.values()), 'multica_url': multica.public_url, 'connected': True,
                 'capabilities': {'sessions': 1, 'independent_turn_context': True},
                 'limits': {'images_per_request': 8, 'session_context_bytes': 20000, 'session_sync_messages': 200}}
+
+    @app.post('/v1/bindings')
+    def inbound_binding():
+        data = request.json
+        agent = next((item for item in multica.agents() if item['id'] == data.get('agent_id')), None)
+        if not agent:
+            raise Problem('所选 Agent 已不存在或没有权限，请刷新目录', 409)
+        route = store.bind_agent(g.source, data.get('account_id'), data.get('purpose'), agent)
+        safe = {key: route[key] for key in ('id', 'version', 'name', 'agent_id', 'account_ids',
+                'sources', 'categories', 'surfaces', 'event_types', 'kinds', 'enabled', 'grouping')}
+        return {'route': {**safe, 'agent': agent, 'execution_mode':route.get('execution_mode','issue'),
+                          'priority':route.get('priority',50)}, 'agent': agent}
 
     @app.post('/v1/messages')
     def inbound():
@@ -265,6 +282,10 @@ def create_app(directory, multica, auth=True, public_origin='', background=False
     @app.get('/v1/messages/<event_id>')
     def inbound_status(event_id):
         return store.message(event_id, g.source, request.args.get('account_id'))
+
+    @app.post('/v1/messages/<event_id>/retry')
+    def inbound_retry(event_id):
+        return store.retry(event_id, g.source, (request.json or {}).get('account_id'))
 
     @app.post('/v1/assets')
     def inbound_asset():

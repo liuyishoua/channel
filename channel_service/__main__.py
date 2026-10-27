@@ -21,6 +21,9 @@ def main():
         parser.error('--no-auth is available only for a loopback demo without a public origin')
     adapter = DemoMultica() if args.demo else Multica(args.data_dir / 'multica.json')
     app = create_app(args.data_dir, adapter, auth=not args.no_auth, public_origin=args.public_origin, background=True, demo=args.demo)
+    from .workspace_identity import install_identity
+    if not args.demo:
+        install_identity(app, args.data_dir, 'channel', None, machine_prefixes=('/v1/', '/control/', '/healthz'))
     store = app.extensions['channel']
     if args.demo and not store.sources():
         store.source('demo', '离线演示来源')

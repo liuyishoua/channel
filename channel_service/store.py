@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY,group_key TEXT NOT NULL,t
 CREATE INDEX IF NOT EXISTS batch_work ON batches(status,next_poll,lease_until);
 CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,source TEXT NOT NULL,account TEXT NOT NULL,path TEXT NOT NULL,media_type TEXT NOT NULL,bytes INTEGER NOT NULL,created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS batch_assets(batch_id TEXT NOT NULL,asset_id TEXT NOT NULL,attachment_id TEXT NOT NULL,PRIMARY KEY(batch_id,asset_id));
+CREATE TABLE IF NOT EXISTS batch_chats(batch_id TEXT PRIMARY KEY,session_id TEXT NOT NULL DEFAULT '',message_id TEXT NOT NULL DEFAULT '',content TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS results(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,source TEXT NOT NULL,account TEXT NOT NULL,event_id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0,created REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS result_source ON results(source,account,seq);
 CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT NOT NULL,entity_id TEXT NOT NULL,detail TEXT NOT NULL,created REAL NOT NULL);
@@ -53,6 +54,8 @@ class Store:
         os.chmod(self.path, 0o600)
         from .sessions import Sessions
         self.sessions = Sessions(self)
+        from .project_bindings import initialize
+        initialize(self)
 
     @contextlib.contextmanager
     def db(self, write=False):
@@ -126,11 +129,53 @@ class Store:
                 owned = json.loads(db.execute('SELECT config FROM routes WHERE id=?', (route_id,)).fetchone()[0])
                 if owned.get('goal_ids', ['*']) != ['*']:
                     raise Problem('请在账号目标页修改目标专属规则', 409)
+                data = {**data, 'execution_mode':data.get('execution_mode',owned.get('execution_mode','issue'))}
             route = normalize_route(data, route_id, prior['version'] + 1 if prior else 1)
             db.execute('INSERT INTO routes VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,config=excluded.config,updated=excluded.updated',
                        (route['id'], route['version'], dumps(route), time.time()))
             self.audit(db, 'route.saved', route['id'], 'version ' + str(route['version']))
         return route
+
+    def bind_agent(self, source, account, purpose, agent):
+        account = identifier(account, 'account_id')
+        dimensions = {
+            'text': ('content_analysis', 'manual', 'manual.request'),
+            'image': ('image_analysis', 'manual', 'manual.request'),
+            'dm': ('reply_draft', 'dm', 'dm.draft_requested' if source == 'douyin' else 'dm.received'),
+            'comment': ('lifestyle_editor', 'manual', 'manual.request') if source == 'xhs' else
+                       ('reply_draft', 'comment', 'comment.received') if source == 'xianyu' else
+                       ('comment_analysis', 'comment', 'comment.analysis_requested'),
+            'content': ('content_analysis', 'comment' if source == 'zhihu' else 'content',
+                        'content.rewrite_requested' if source == 'xhs' else
+                        'comment.analysis_requested' if source == 'zhihu' else 'content.analysis_requested'),
+            'research': ('product_research', 'comment' if source == 'zhihu' else 'content',
+                         'comment.analysis_requested' if source == 'zhihu' else 'content.analysis_requested'),
+        }
+        if not isinstance(purpose, str) or purpose not in dimensions:
+            raise Problem('用途无效')
+        category, surface, event = dimensions[purpose]
+        probe = dict(source_id=source, account_id=account, category=category,
+                     surface=surface, event_type=event, kind='mixed' if purpose == 'image' else 'text', context={})
+        with self.db(True) as db:
+            # Reuse only source-scoped, account-scoped ordinary routes for this Agent.
+            routes = [json.loads(row[0]) for row in db.execute('SELECT config FROM routes')]
+            eligible = [r for r in routes if r['agent_id'] == agent['id'] and r['sources'] == [source]
+                        and '*' not in r.get('account_ids', ['*']) and account in r.get('account_ids', [])
+                        and r.get('goal_ids', ['*']) == ['*']]
+            chosen = match_route(probe, eligible)
+            if chosen:
+                return chosen
+            route_id = str(uuid.uuid5(uuid.NAMESPACE_URL, dumps(['channel-agent-binding', source, account, purpose, agent['id']])))
+            prior = next((r for r in routes if r['id'] == route_id), None)
+            version = prior['version'] + 1 if prior else 1
+            route = normalize_route(dict(name=(agent['name'] + ' · ' + purpose)[:80],
+                agent_id=agent['id'], sources=[source], account_ids=[account], categories=[category],
+                surfaces=[surface], event_types=[event], kinds=['text', 'image', 'mixed'], priority=80,
+                instruction='按当前任务的真实绑定账号、账号上下文及输出契约处理。使用当前 Agent 挂载的相关技能；平台动作由工作台执行。'), route_id, version)
+            db.execute('INSERT INTO routes VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,config=excluded.config,updated=excluded.updated',
+                       (route['id'], route['version'], dumps(route), time.time()))
+            self.audit(db, 'agent.bound', route['id'], purpose)
+            return route
 
     def _route_group(self, db, payload, route):
         key = group_key(payload, route)
@@ -190,8 +235,10 @@ class Store:
                 if payload['new_task'] or payload['reply_to'] or payload['thread_id']:
                     raise Problem('会话快照使用独立执行，不接受任务续接参数')
             route = match_route(payload, [json.loads(x[0]) for x in db.execute('SELECT config FROM routes')])
+            from .project_bindings import apply
+            route = apply(db,payload,route)
             if payload.get('route_id') and not route:
-                raise Problem('所选路由不可用或不匹配当前来源、类别及入口', 409)
+                raise Problem('所选路由不可用或不匹配当前来源、账号、类别及入口', 409)
             event_id = new_id()
             if snapshot_id:
                 turn_key = digest([snapshot['session_id'], snapshot['revision'], snapshot['memory_revision'], sorted(snapshot['trigger_message_ids']), payload.get('route_id'), payload['category'], payload['context'].get('control_mode'), snapshot_id if snapshot.get('reanalysis') else ''])
@@ -223,6 +270,11 @@ class Store:
         value['result'] = json.loads(result['payload']) if result else None
         value['result_cursor'] = result['seq'] if result else None
         value['execution'] = dict(batch) if batch else None
+        if batch:
+            with self.db() as db:
+                chat = db.execute('SELECT session_id FROM batch_chats WHERE batch_id=?', (row['batch_id'],)).fetchone()
+            if chat:
+                value['execution']['chat_session_id'] = chat['session_id']
         return value
 
     def message(self, event_id, source=None, account=None):
@@ -320,20 +372,32 @@ class Store:
             self.audit(db,'message.cancelled',event_id)
         return self.message(event_id)
 
-    def retry(self, event_id):
+    def retry(self, event_id, source=None, account=None):
         with self.db(True) as db:
             row = db.execute('SELECT * FROM messages WHERE id=?', (event_id,)).fetchone()
             if not row:
                 raise LookupError()
+            if source is not None:
+                if row['source'] != source or not account or row['account'] != str(account):
+                    raise LookupError()
+                # A repeated machine request after a lost response must not
+                # reset a batch that has already resumed.
+                if row['state'] in ('queued', 'processing', 'waiting', 'succeeded'):
+                    return self.message(event_id, source, account)
+                if row['state'] != 'failed_preflight':
+                    raise Problem('只能恢复确认未投递的任务', 409)
             if row['state'] not in ('blocked_no_route', 'blocked_reply', 'failed_preflight'):
                 raise Problem('只有未投递的阻塞消息或前置检查失败可以重新排队', 409)
             payload = json.loads(row['payload'])
             route = match_route(payload, [json.loads(x[0]) for x in db.execute('SELECT config FROM routes')])
+            from .project_bindings import apply
+            route = apply(db,payload,route)
             if not route:
                 raise Problem('仍然没有匹配路由')
             key, thread, state, error = self._route_group(db, payload, route)
             db.execute('UPDATE messages SET route=?,group_key=?,thread_id=?,batch_id=NULL,state=?,error=?,available=?,updated=? WHERE id=?',
                        (dumps(route), key, thread, state, error, time.time() + route['batch_seconds'], time.time(), event_id))
+            db.execute('DELETE FROM results WHERE event_id=?', (event_id,))
             self.audit(db, 'message.requeued', event_id)
         return self.message(event_id)
 

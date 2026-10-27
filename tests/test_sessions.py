@@ -79,6 +79,7 @@ class SessionTests(unittest.TestCase):
         self.sync([self.msg()]);original=self.snap();self.sync([self.msg('m2',age=0)])
         self.assertEqual(original,self.snap());self.assertFalse(self.s.validate('xhs',original['id'],'a')['current'])
         with self.assertRaises(Problem):self.snap(recent_limit=5)
+
     def test_freshness_echo_and_answered_messages_do_not_trigger(self):
         self.sync([self.msg('old',age=172801)]);self.assertFalse(self.snap('old')['eligible'])
         self.sync([self.msg('current')]);self.sync([{**self.msg('self',age=0),'direction':'outbound'}])

@@ -6,8 +6,10 @@ import requests
 
 
 class RemoteError(Exception):
-    def __init__(self, status=0, ambiguous=False):
-        super().__init__('Multica 请求未完成' if not status else f'Multica 返回 HTTP {status}')
+    def __init__(self, status=0, ambiguous=False, code=''):
+        reasons = {'active_duplicate_issue': '任务标题与已有活动任务重复'}
+        message = 'Multica 请求未完成' if not status else f'Multica 返回 HTTP {status}'
+        super().__init__(message + ('：' + reasons[code] if isinstance(code, str) and code in reasons else ''))
         self.status = status
         self.ambiguous = ambiguous
 
@@ -33,7 +35,12 @@ class Multica:
                 r = s.request(method, self.base + path, headers=headers, json=data if files is None else None,
                               files=files, data=data if files is not None else None, timeout=(5, 30), allow_redirects=False)
                 if not 200 <= r.status_code < 300:
-                    raise RemoteError(r.status_code, method != 'GET' and (r.status_code >= 500 or 300 <= r.status_code < 400))
+                    try:
+                        error = r.json()
+                        code = error.get('code', '') if isinstance(error, dict) else ''
+                    except ValueError:
+                        code = ''
+                    raise RemoteError(r.status_code, method != 'GET' and (r.status_code >= 500 or 300 <= r.status_code < 400), code)
                 if not r.content:
                     return {}
                 try:
@@ -58,7 +65,8 @@ class Multica:
         result = self.request('GET', '/api/agents')
         if not isinstance(result, list):
             raise RemoteError(502)
-        return [{k: x.get(k) for k in ('id', 'name', 'model', 'runtime_id', 'status')} for x in result]
+        return [{k: x.get(k) for k in ('id', 'name', 'description', 'model', 'runtime_id', 'status',
+                 'runtime_bound', 'runtime_availability', 'system_key', 'permission_mode')} for x in result]
 
     def projects(self):
         return self.request('GET', '/api/projects').get('projects', [])
@@ -68,9 +76,14 @@ class Multica:
 
     def create_issue(self, title, content, route, attachments):
         data = {'title': title, 'description': content, 'status': 'todo', 'priority': 'medium',
-                'assignee_type': 'agent', 'assignee_id': route['agent_id'], 'attachment_ids': attachments}
+                'assignee_type': 'agent', 'assignee_id': route['agent_id'], 'attachment_ids': attachments,
+                # Distinct batches can share a display title. Durable batch
+                # intents and reconciliation provide request deduplication.
+                'allow_duplicate': True}
         if route['project_id']:
             data['project_id'] = route['project_id']
+        if route.get('parent_issue_id'):
+            data['parent_issue_id'] = route['parent_issue_id']
         return self.request('POST', '/api/issues', data)
 
     def comment(self, issue_id, content, route, attachments):
@@ -98,12 +111,22 @@ class Multica:
         return result['id']
 
     def find_issue(self, marker, batch_id):
-        query = urlencode({'q': 'Channel-' + batch_id, 'limit': 100})
-        result = self.request('GET', '/api/issues?' + query)
-        rows = result.get('issues', [])
-        matches = [x for x in rows if marker in (x.get('description') or '')]
-        if len(matches) > 1:
-            raise RemoteError(409)
+        # ListIssues does not apply q. Search descriptions, including closed
+        # issues, so recovery is independent of a task's user-facing title.
+        matches = []
+        offset = 0
+        while True:
+            query = urlencode({'q': marker, 'limit': 50, 'offset': offset, 'include_closed': 'true'})
+            result = self.request('GET', '/api/issues/search?' + query)
+            if not isinstance(result, dict) or not isinstance(result.get('issues'), list):
+                raise RemoteError(502)
+            rows = result['issues']
+            matches.extend(x for x in rows if marker in (x.get('description') or ''))
+            if len({x['id'] for x in matches}) > 1:
+                raise RemoteError(409)
+            if len(rows) < 50:
+                break
+            offset += len(rows)
         return matches[0] if matches else None
 
     def issue_url(self, issue_id):

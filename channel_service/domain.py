@@ -116,6 +116,7 @@ def normalize_route(data, route_id=None, version=1):
         except ValueError:
             raise Problem('project_id 必须是 UUID')
     sources = data.get('sources', ['*'])
+    account_ids = data.get('account_ids', ['*'])
     categories = data.get('categories', ['*'])
     kinds = data.get('kinds', ['text', 'image', 'mixed'])
     surfaces = data.get('surfaces', ['*'])
@@ -126,6 +127,10 @@ def normalize_route(data, route_id=None, version=1):
             raise Problem(f'{name} 至少选择一项')
         for value in values:
             identifier(value, name, 80)
+    if not isinstance(account_ids, list) or not 1 <= len(account_ids) <= 30:
+        raise Problem('account_ids 至少选择一项')
+    # Account IDs have the same maximum length and normalization as inbound IDs.
+    account_ids = [identifier(value, 'account_ids') for value in account_ids]
     if not set(kinds) <= {'text', 'image', 'mixed'}:
         raise Problem('消息类型无效')
     grouping = data.get('grouping', 'conversation')
@@ -137,10 +142,15 @@ def normalize_route(data, route_id=None, version=1):
     prompt = data.get('instruction', '分析上下文，给出可以直接采用的中文建议。')
     if not isinstance(prompt, str) or len(prompt) > 4000:
         raise Problem('处理要求最多 4000 字')
+    execution_mode = data.get('execution_mode', 'issue')
+    if execution_mode not in ('issue', 'frozen_reply'):
+        raise Problem('execution_mode 无效')
+    if execution_mode == 'frozen_reply' and (sources != ['xhs'] or categories != ['reply_draft'] or surfaces != ['dm']):
+        raise Problem('即时回复仅适用于小红书私信')
     return dict(id=route_id, version=version, name=identifier(data.get('name'), '路由名称', 80),
-                agent_id=agent, project_id=project, sources=sources, categories=categories, kinds=kinds,
+                agent_id=agent, project_id=project, sources=sources, account_ids=account_ids, categories=categories, kinds=kinds,
                 surfaces=surfaces, event_types=event_types, goal_ids=goal_ids,
-                grouping=grouping, enabled=enabled, instruction=prompt,
+                grouping=grouping, enabled=enabled, instruction=prompt, execution_mode=execution_mode,
                 priority=integer(data.get('priority', 50), '优先级', 0, 100),
                 idle_seconds=integer(data.get('idle_seconds', 86400), '会话间隔', 60, 2592000),
                 max_messages=integer(data.get('max_messages', 100), '会话消息上限', 1, 1000),
@@ -155,6 +165,7 @@ def match_route(message, routes):
         if message.get('route_id') and route['id'] != message['route_id']:
             continue
         if route['enabled'] and ('*' in route['sources'] or message['source_id'] in route['sources']) and \
+                ('*' in route.get('account_ids', ['*']) or message['account_id'] in route['account_ids']) and \
                 ('*' in route['categories'] or message['category'] in route['categories']) and message['kind'] in route['kinds'] and \
                 ('*' in route.get('surfaces', ['*']) or message.get('surface', 'manual') in route['surfaces']) and \
                 ('*' in route.get('event_types', ['*']) or message.get('event_type', 'manual.request') in route['event_types']) and \

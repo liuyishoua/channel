@@ -38,6 +38,8 @@
 
 新消息返回 202，字段 id 为 Channel event_id；state 表示当前阶段，duplicate=false。相同唯一键且内容一致返回 200、duplicate=true；内容不同返回 409。
 
+`POST /v1/messages/{event_id}/retry` 携带 `{"account_id":"账号ID"}`，仅允许同一来源及账号恢复 `failed_preflight`（确认未投递）任务。排队、等待或已成功的重复请求返回当前状态，不重新投递；不确定或已执行失败的任务返回409。恢复沿用原event ID及冻结请求，更新当前路由，替换旧失败结果；旧批次和审计保留。
+
 重要：提交响应丢失时，使用原 message_id 和完全相同的 payload 重试。不要为了绕过超时更换 ID。
 
 ## 查询结果
@@ -66,6 +68,7 @@ result 包含 event_id、message_id、source_id、account_id、thread_id、batch
 
 - `/api/sources` GET/POST，`PATCH /api/sources/{id}` 停用或 rotate 凭据。
 - `/api/routes` GET/POST，`PUT /api/routes/{id}` 保存新版本。
+- 路由 `account_ids` 为 1–30 个账号稳定 ID 的列表，精确匹配并与 `sources` 同时生效；省略或包含 `*` 表示全部账号，旧配置缺失此字段也按 `*` 兼容。账号 ID 最长 160 字。身份专属 agent 的路由应显式填写账号 ID，避免账号串用。
 - `POST /api/route-preview` 预览匹配，不触发模型。
 - `/api/messages` GET/POST，`GET /api/messages/{id}`。
 - `POST /api/messages/{id}/cancel` 取消尚未投递的排队或阻塞消息。
@@ -79,8 +82,16 @@ result 包含 event_id、message_id、source_id、account_id、thread_id、batch
 
 ## 工作台模型配置
 
-`GET /v1/catalog` 使用来源凭据读取该来源可用的普通路由及对应 Multica agent/model 信息；不暴露其他来源或目标专属规则，不返回凭据和处理指令。旧路由缺少业务入口维度时按 `*` 兼容。
+`GET /v1/catalog` 使用来源凭据读取该来源可用的普通路由及对应 Multica agent/model 信息；不暴露其他来源或目标专属规则，不返回凭据和处理指令。返回 `account_ids` 供工作台按当前账号筛选，旧路由缺少账号或业务入口维度时按 `*` 兼容。目录按来源列出，最终账号限制由消息接入再次校验。
 
-`POST /v1/messages` 可携带 `route_id` 选择目录内路由。仍需满足来源、类别、媒体和业务入口全部条件，不可跨来源选择；不匹配返回 409。未指定时继续按优先级匹配。路由 ID 计入消息指纹，接收后保存不可变规则快照。
+`agents` 实时读取已配置工作区的 Multica Open API Agent 目录，包含尚未建立路由的 Agent；返回名称、运行状态等安全元数据，不返回运行配置或凭据。它独立于来源限定的 `routes`。目录请求失败返回明确错误，不使用旧目录代替。
+
+`POST /v1/bindings` 使用来源凭据接收 `{agent_id, account_id, purpose}`，重新核对 Agent 实时可见性并复用或创建仅属于该来源、账号和用途的路由，返回 `{route, agent}`。用途为 `text`、`image`、`dm`、`comment` 或 `content`。工作台后端先验证当前登录用户拥有该账号；浏览器不接触来源或 Multica 凭据。显式选择不以预建路由或账号名称限制，账号名称只用于现有配置迁移和空默认的唯一匹配。绑定不会改写 Agent 的指令或挂载技能，也不会改另一路由的执行身份。提交时继续校验来源、账号与用途，历史以当时快照为准。
+
+`POST /v1/messages` 可携带 `route_id` 选择目录内路由。仍需满足来源、账号、类别、媒体和业务入口全部条件，不可跨来源或账号选择；不匹配返回 409，不回退到其他规则。未指定时继续按优先级匹配。路由 ID 计入消息指纹，接收后保存不可变规则快照，后续路由修改不改变历史消息快照或同来源同账号的重试结果。
 
 XHS 工作台按内容、图片、私信用途绑定路由。`source_id=xhs`、`surface=dm`、`category=reply_draft` 的结果格式含 `decision`、`reply_messages`、`summary`、`requires_human`；reply 时 `reply_messages` 为1至4条按顺序发送的文字或已读取媒体，每条含0至15秒 `delay_seconds`；no_reply 时为空。保留单条 `reply_text` / `reply_message` 输入。只有 `requires_human=false` 且整组校验有效时，工作台才可依照账号控制模式与自动回复开关发送。Channel 和 Multica 不执行平台发送。
+
+Additional binding purposes: `research` produces product_research/content/content.analysis_requested; Zhihu uses comment/comment.analysis_requested for content/research, and Douyin dm uses dm/dm.draft_requested. Each route remains exact source/account and immutable per selected Agent.
+
+小红书独立私信快照可配置 `execution_mode=frozen_reply`，其他路由仍为 `issue`。快照、来源和账号校验保持一致；即时回复由 Multica 的独立 Chat 任务执行，完整冻结资料直接作为模型输入，不通过 issue/comment 二次读取。每批使用一个 Chat，创建与提交前记录持久化意图，回执不明只核对已有记录，不重放模型请求。完成后归档该 Chat；平台发送仍由原工作台校验和执行。`/v1/catalog` 和 `/v1/bindings` 的 route 增加安全字段 `execution_mode`、`priority`，消息状态的 `execution.chat_session_id` 标识执行会话，`task_id` 仍为真实 Multica 任务 ID。即时模式仅允许 `sources=[xhs]`、`categories=[reply_draft]`、`surfaces=[dm]`，否则返回 400。

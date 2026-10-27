@@ -36,6 +36,8 @@ class Workbench:
 
     def request(self, path, data=None):
         headers = {'Origin': self.origin, 'X-App-Request': '1'}
+        machine=self.password_file.with_name('workspace-machine-key')
+        if machine.is_file():headers['X-Ops-Machine-Key']=machine.read_text().strip()
         if path != '/api/login':
             headers['X-Execution-Account'] = self.expected_account
         # Match the existing local operations CLI: browser cookies stay Secure;

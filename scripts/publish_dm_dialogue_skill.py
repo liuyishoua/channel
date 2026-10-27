@@ -45,6 +45,7 @@ ROUTE_INSTRUCTION = ('按 xhs-natural-expression 处理当前私聊交流动作�
 
 
 def main():
+    raise SystemExit("This legacy setup entry is retired after identity/capability migration. Maintain skills with agent-tools/social-content-kit/scripts/publish_capabilities.py and preserve the existing account-bound routes.")
     p = argparse.ArgumentParser(); p.add_argument('--execute', action='store_true'); args = p.parse_args()
     if not args.execute:
         p.error('--execute required')

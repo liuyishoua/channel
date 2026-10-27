@@ -97,6 +97,8 @@ class Automation:
         self.tick_lock = threading.Lock()
         with store.db() as db:
             db.executescript(SCHEMA)
+        from .command_actions import initialize
+        initialize(self)
 
     def goals(self):
         with self.store.db() as db:
@@ -449,6 +451,10 @@ class Automation:
 
     def _guard(self, db, action, now):
         goal = self._goal(db.execute('SELECT * FROM goals WHERE id=?', (action['goal_id'],)).fetchone())
+        from .command_actions import guard
+        command_guard = guard(self, db, action, now)
+        if command_guard:
+            return command_guard
         if not self.authorized(db, action['goal_id'], now):
             return 'ready', '等待指挥部续约或暂停指令'
         case = db.execute('SELECT * FROM goal_cases WHERE id=?', (action['case_id'],)).fetchone()

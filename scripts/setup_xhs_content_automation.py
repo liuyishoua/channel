@@ -16,6 +16,12 @@ from channel_service.store import Store
 
 HOME = ROOT / 'agent-tools/xhs-lifestyle-publisher'
 CONFIG = ROOT / 'xhs/.local/content-automation.json'
+AUTOMATION_TITLE = '小桃每天随机发两条'
+AUTOMATION_DESCRIPTION = (
+    '每天上午、晚上各随机执行一次，为小桃先吃一口创作一篇生活笔记，检查通过后发布。'
+    '\n\nmode=post。按 xhs-lifestyle-publisher 技能创作，选题和 2–6 张真实照片要有变化，避免重复近期笔记。'
+    '只返回技能规定的 post JSON；发布由工作台完成。'
+)
 
 
 def write_config(value):
@@ -27,6 +33,7 @@ def write_config(value):
 
 
 def main():
+    raise SystemExit("This legacy setup entry is retired after identity/capability migration. Maintain skills with agent-tools/social-content-kit/scripts/publish_capabilities.py and preserve the existing account-bound routes.")
     p = argparse.ArgumentParser(); p.add_argument('--execute', action='store_true')
     args = p.parse_args()
     if not args.execute:
@@ -70,13 +77,13 @@ def main():
         'max_batch': 1, 'timeout_seconds': 900, 'instruction': body,
     }, config.get('route_id'))
     config['route_id'] = route['id']; write_config(config)
-    description = '''mode=post。为小桃先吃一口写一篇生活笔记候选稿。先搜索互联网了解普通人当前讨论的小问题，再写原创内容。每天另有一篇，主题不要局限一个领域。网页研究必须实际访问并在sources中记录，素材优先真实摄影，照片2–6张。Pexels候选请提供真实作品页面和数字ID，工作台会下载后让你另跑一次看图验收，验收通过才发布。不要访问小红书凭据或执行发布。不得虚构亲测、购买、本人住址、身份、摄影或经验。不要复制其他笔记文字/图片。返回post契约JSON。\n\n''' + body
+    description = AUTOMATION_DESCRIPTION
     if config.get('autopilot_id'):
         existing = remote.request('GET', '/api/autopilots/' + config['autopilot_id'])['autopilot']
         marker = '\n\n近期已发布记录（工作台提供）：'
         if marker in (existing.get('description') or ''):
             description += marker + existing['description'].split(marker, 1)[1]
-    payload = {'title': '小桃｜每日随机两帖＋评论回复', 'description': description,
+    payload = {'title': AUTOMATION_TITLE, 'description': description,
                'assignee_id': config['agent_id'], 'execution_mode': 'create_issue',
                'issue_title_template': '小桃生活笔记候选 · {{date}}'}
     if config.get('autopilot_id'):

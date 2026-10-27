@@ -12,11 +12,18 @@ from .domain import Problem, identifier, integer, inspect_context
 def register_control(app, automation):
     bp = Blueprint('control', __name__)
     store = automation.store
+    from . import command_actions
+    command_actions.initialize(automation)
+
+    @bp.put('/control/v1/business-project-bindings')
+    def business_project_binding():
+        from .project_bindings import bind
+        return bind(store,app.extensions['multica'],g.command_owner,request.json)
 
     @bp.get('/control/v1/catalog')
     def catalog():
         adapter = app.extensions['multica']
-        return dict(protocol=1, sources=store.sources(), connectors=automation.connectors(),
+        return dict(protocol=1, command_actions=True, direct_goal_actions=True, sources=store.sources(), connectors=automation.connectors(),
                     agents=adapter.agents(), multica_url=adapter.public_url)
 
     @bp.put('/control/v1/deployments/<goal_id>')
@@ -77,6 +84,18 @@ def register_control(app, automation):
         return dict(actions=actions, stats=stats, cases=cases,
             deployments=[{k: v for k, v in x.items() if k not in ('fingerprint', 'context')} for x in controlled],
             unmanaged_goals=unmanaged, next_cursor=changes[-1]['seq'] if changes else after, has_more=len(changes) == 500)
+
+    @bp.post('/control/v1/deployments/<goal_id>/actions')
+    def command_queue(goal_id):
+        return command_actions.queue(automation, g.command_owner, goal_id, request.json)
+
+    @bp.get('/control/v1/deployments/<goal_id>/actions/<request_id>')
+    def command_read(goal_id, request_id):
+        return command_actions.read(automation, g.command_owner, goal_id, request_id)
+
+    @bp.post('/control/v1/deployments/<goal_id>/actions/<request_id>/cancel')
+    def command_cancel(goal_id, request_id):
+        return command_actions.read(automation, g.command_owner, goal_id, request_id, cancel=True)
 
     @bp.post('/control/v1/actions/<action_id>/decision')
     def decision(action_id):
